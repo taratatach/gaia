@@ -8,8 +8,8 @@ from StringIO import StringIO
 from collections import defaultdict
 import sys, struct, operator, heapq
 
-_NodeCounter = 0;
-_NodeRemoveCounter = 0;
+_NodeCounter = 0
+_NodeRemoveCounter = 0
 
 # Data Structure for TST Tree
 class TSTNode:
@@ -18,18 +18,16 @@ class TSTNode:
         global _NodeCounter
         _NodeCounter += 1
         self.ch = ch
-        self.left = None
-        self.center = None
-        self.right = None
+        self.left = self.center = self.right = None
         self.frequency = 0 # frequency != 0 indicates the end of a word
         # we need to store the offset for writing the TST into a file
-        self.leftOffset = 0
-        self.centerOffset = 0
-        self.rightOffset = 0
+        self.leftOffset = self.centerOffset = self.rightOffset = 0
         # store the count for balancing the tst
         self.count = 0
         # store has for creating the DAG
         self.hash = 0
+        # we set an offset of -1 as default, because the offset can never be -1
+        self.offset = -1
 
 class Ptr:
     def __init__(self, obj): self.obj = obj
@@ -37,10 +35,9 @@ class Ptr:
     def set(self, obj): self.obj = obj
 
 class TSTTree:
-
     # Constructor for creating a TST Tree
     def __init__(self):
-        self.tableSize = 262144
+        self.tableSize = 1048576
         self.table = [None] * self.tableSize
 
     # Insert a word into the TSTTree
@@ -78,8 +75,6 @@ class TSTTree:
         # swap tmp and node
         tmp.right = node
         # restore count field
-        #node.count = (node.left ? node.left.count : 0) + (node.right ? node.right.count : 0) + 1
-        #tmp.count = (tmp.left ? tmp.left.count : 0) + tmp.right.count + 1
         node.count = (node.left.count if node.left else 0) + (node.right.count if node.right else 0) + 1
         tmp.count = (tmp.left.count if tmp.left else 0) + tmp.right.count + 1
         return tmp
@@ -91,8 +86,6 @@ class TSTTree:
         # swap tmp and node
         tmp.left = node
         # restore count field
-        #node.count = (node.left ? node.left.count : 0) + (node.right ? node.right.count : 0) + 1
-        #tmp.count = tmp.left.count + (tmp.right ? tmp.right.count : 0) + 1
         node.count = (node.left.count if node.left else 0) + (node.right.count if node.right else 0) + 1
         tmp.count = tmp.left.count + (tmp.right.count if tmp.right else 0) + 1
         return tmp
@@ -160,19 +153,28 @@ class TSTTree:
         node.hash %= self.tableSize
         return node.hash
 
+    def freeNode(self, node):
+        global _NodeRemoveCounter
+        if not node:
+            return
+        self.freeNode(node.left)
+        self.freeNode(node.center)
+        self.freeNode(node.right)
+        _NodeRemoveCounter += 1
+        node = None
+
     # find the node in the hash table. if it does not exist,
     # add a new one and return true, if not, return false
     def checkAndRemoveDuplicate(self, nodePtr):
         global _NodeRemoveCounter
+
         node = nodePtr.get()
-       # print "checkAndRemoveDuplicate " + node.ch
         hash = node.hash
         while (self.table[hash] != None):
-           # print ("stuck " + self.table[hash].ch)
             if self.equal(self.table[hash], node):
                 # this node already exists in the table.
                 # remove the duplicate
-                _NodeRemoveCounter += 1
+                self.freeNode(node)
                 nodePtr.set(self.table[hash])
                 return False
             hash = (hash + 1) % self.tableSize
@@ -254,66 +256,54 @@ def buildTST(tree):
         root = tree.insert(root, word, freq)
     return root
 
-def writeU32(output, u32):
-    output.write(struct.pack("i", u32))
+def writeInt32(output, int32):
+    output.write(struct.pack("i", int32))
 
 def writeChar(output, ch):
-    writeU32(output, ord(ch))
+    writeInt32(output, ord(ch))
 
 # offset is a byteoffset, so we have to calculate
 # the correct index for an Int32Array
 def emitOffset(output, offset):
-    assert(offset % 4 == 0)
-    writeU32(output, offset/4)
+    writeInt32(output, offset/4)
 
 def emitNode(output, verboseOutput, node):
     fixup = 0
     writeChar(output, node.ch)
     offset = output.tell()
-    if not hasattr(node, "offset"):
-        fixup += 1
+    # set the default
+    # node.offset = gettAttr(node, "offset", -1)
+    if node.offset != offset:
         node.offset = offset
-    elif node.offset != offset:
-        node.offset = offset
         fixup += 1
-
     verboseOutput.write("["+ str((node.offset-1)/4) +"] { ch: " + node.ch)
 
     # emit the left child
     if node.left:
-        if not hasattr(node.left, "offset"):
+        if node.leftOffset != node.left.offset:
             fixup += 1
-        else:
-            if node.leftOffset != node.left.offset:
-                fixup += 1
             node.leftOffset = node.left.offset
-    emitOffset(output, (node.leftOffset - node.offset) if node.leftOffset != 0 else 0)
+    emitOffset(output, (node.leftOffset - node.offset) if node.left else 0)
     verboseOutput.write(", l: " + str(max(node.leftOffset-1,0)/4))
     
     # emit the center child
     if node.center:
-        if not hasattr(node.center, "offset"):
+        if node.centerOffset != node.center.offset:
             fixup += 1
-        else:
-            if node.centerOffset != node.center.offset:
-                fixup += 1
             node.centerOffset = node.center.offset
-    emitOffset(output, (node.centerOffset - node.offset) if node.centerOffset != 0 else 0)
+    emitOffset(output, (node.centerOffset - node.offset) if node.center else 0)
     verboseOutput.write(", c: " + str(max(node.centerOffset-1,0)/4))
  
     # emit the right child
     if node.right:
-        if not hasattr(node.right, "offset"):
+        if node.rightOffset != node.right.offset:
             fixup += 1
-        else:
-            if node.rightOffset != node.right.offset:
-                fixup += 1
             node.rightOffset = node.right.offset
-    emitOffset(output, (node.rightOffset - node.offset) if node.rightOffset != 0 else 0)
+    emitOffset(output, (node.rightOffset - node.offset) if node.right else 0)
     verboseOutput.write(", r: " + str(max(node.rightOffset-1,0)/4))
 
     # emit the frequency of the node
-    writeU32(output, node.frequency)
+    writeInt32(output, node.frequency)
     verboseOutput.write(", f: " + str(node.frequency) + "}\n")
     return fixup
 
@@ -327,16 +317,17 @@ def emitTST(output, verboseOutput, root):
     while queue:
         node = queue.pop(0)
         if node in visited:
-            continue
+            continue;
         visited.append(node)
-        
-        if node.left and not node.left in visited:
-            queue.append(node.left)
-        if node.center and not node.center in visited:
-            queue.append(node.center)
-        if node.right and not node.right in visited:
-            queue.append(node.right)
+
         fixup += emitNode(output, verboseOutput, node)
+        
+        if node.left:
+            queue.append(node.left)
+        if node.center:
+            queue.append(node.center)
+        if node.right:
+            queue.append(node.right)
 
     return fixup
 
@@ -426,4 +417,3 @@ if options.verbose:
 print ("[6/6] Successfully created Dictionary (" +
         str(_NodeCounter) + " - " + str(_NodeRemoveCounter) +
         " = " + str(_NodeCounter - _NodeRemoveCounter) + " nodes).")
-
