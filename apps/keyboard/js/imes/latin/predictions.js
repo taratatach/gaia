@@ -37,7 +37,7 @@ var Predictions = (function() {
 
   var _dict; // the dictionary for the current language
   var _currentWord = ''; // the word currently being edited
-  var _maxLookAhead = 6; // stop traversing the tree once we hit this length 
+  var _maxLookAhead = 3; // stop traversing the tree once we hit this length
   var _maxSuggestions = 3; // max number of suggestions to be returned
 
   // Send a log message to the main thread since we can't output to the console
@@ -57,7 +57,7 @@ var Predictions = (function() {
     // traverse the tst using DFS to find all possible candidates
     // starting with the given prefix
     function findPredictionsDFS(offset, match, candidates) {
-      // var splitChar = _dict[offset];
+      var splitChar = _dict[offset];
       var lChild = _dict[offset + lChildIdx];
       var cChild = _dict[offset + cChildIdx];
       var rChild = _dict[offset + rChildIdx];
@@ -67,7 +67,8 @@ var Predictions = (function() {
       // dump (", l: " + lChild);
       // dump (", c: " + cChild);
       // dump (", r: " + rChild);
-      // dump (", f: " + frequency + "\n");
+      // dump (", f: " + frequency);
+      // dump (", match: " + match + "\n");
 
       if (match.length > _currentWord.length + _maxLookAhead)
         return;
@@ -94,50 +95,76 @@ var Predictions = (function() {
       }
     }
 
-    function predict(offset, prefix, match, suggestions) {
+    // flag indicates that the prefix was not modified for lookups
+    function predict(offset, prefix, match, suggestions, flag) {
       var splitChar = _dict[offset]; // character code
-      var lChild = _dict[offset+lChildIdx];
-      var cChild = _dict[offset+cChildIdx];
-      var rChild = _dict[offset+rChildIdx];
-      var frequency = _dict[offset+freqIdx];
+      var lChild = _dict[offset + lChildIdx];
+      var cChild = _dict[offset + cChildIdx];
+      var rChild = _dict[offset + rChildIdx];
+      var frequency = _dict[offset + freqIdx];
 
       // dump ("predict, ch: " + String.fromCharCode(splitChar));
       // dump (", l: " + lChild);
       // dump (", c: " + cChild);
       // dump (", r: " + rChild);
-      // dump (", f: " + frequency + "\n");
+      // dump (", f: " + frequency);
+      // dump (", prefix: " + prefix);
+      // dump (", match: " + match + "\n");
+
+      if (prefix.length <= 0) {
+        return;
+      }
 
       var ch = prefix[0];
-
-      if (ch.charCodeAt(0) < splitChar) {
-        if (lChild != 0) {
-          predict(offset + lChild, prefix, match, suggestions);
-        }
-      }
-      else if (ch.charCodeAt(0) > splitChar) {
-        if (rChild != 0) {
-          predict(offset + rChild, prefix, match, suggestions);
-        }
-      }
-      else {
-        if (prefix.length == 1) {
-          if (frequency != 0 && match.length > _currentWord.length) {
-            suggestions.push({ word : match, freq : frequency });
-          }
-          if (cChild != 0) {
-            var cChar = String.fromCharCode(_dict[offset + cChild]);
-            findPredictionsDFS(offset + cChild, match + String.fromCharCode(splitChar) + cChar, suggestions);
-          }
-          return;
+      if (ch.charCodeAt(0) == splitChar) {
+        if (frequency != 0 && match.length > _currentWord.length) {
+          suggestions.push({ word : match, freq : frequency });
+          // dump ("      --------------------------> PREDICT ADD: " + match + "\n");
         }
         if (cChild != 0) {
-          predict(offset + cChild, prefix.substring(1), match + ch, suggestions);
+          if (prefix.length == 1) {
+            var cChar = String.fromCharCode(_dict[offset + cChild]);
+            findPredictionsDFS(offset + cChild, match + String.fromCharCode(splitChar) + cChar, suggestions);
+            return;
+          }
+          predict(offset + cChild, prefix.substring(1), match + ch, suggestions, flag);
+
+          if (flag) {
+            // add a character
+            var charArray = ['a','b','c','d','e','f','g','h','i','j','k','l','m','n',
+                             'o','p','q','r','s','t','u','v','w','x','y','z'];
+            var altprefix = '';
+            for (var n = 0, len = charArray.length; n < len; ++n) {
+              altprefix = prefix.substring(0, 1) + charArray[n] + prefix.substring(1);
+              //dump ("add a character " + prefix + " >>> " + altprefix + "\n");
+              predict(offset, altprefix, match, suggestions, false);
+            }
+            
+            // remove a character
+            altprefix = prefix.substring(0,1) + prefix.substring(2);
+            //dump ("remove a character " + prefix + " >>> " + altprefix + "\n");
+            predict(offset, altprefix, match, suggestions, false);
+
+            // transpose characters
+            if (prefix.length >= 3) {
+              altprefix = prefix[0] + prefix[2] + prefix[1] + prefix.substring(3);
+              //dump ("transpose characters " + prefix + " >>> " + altprefix + "\n");
+              predict(offset, altprefix, match, suggestions, false);
+            }
+          }
         }
+      }
+
+      if (ch.charCodeAt(0) < splitChar && lChild != 0) {
+        predict(offset + lChild, prefix, match, suggestions, flag);
+      }
+      if (ch.charCodeAt(0) > splitChar && rChild != 0) {
+        predict(offset + rChild, prefix, match, suggestions, flag);
       }
     }
 
     return (function(prefix, candidates) {
-      predict(0, prefix, '', candidates); 
+      predict(0, prefix, '', candidates, true);
     });
   })();
 
