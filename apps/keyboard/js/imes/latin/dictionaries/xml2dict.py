@@ -16,6 +16,7 @@ class TSTNode:
     # Constructor for creating a new TSTNode
     def __init__(self, ch):
         global _NodeCounter
+        self.id = _NodeCounter
         _NodeCounter += 1
         self.ch = ch
         self.left = self.center = self.right = None
@@ -316,9 +317,11 @@ def emitTST(output, verboseOutput, root):
 
     while queue:
         node = queue.pop(0)
-        if node in visited:
+        if node.id in visited:
             continue;
-        visited.append(node)
+        visited.append(node.id)
+
+        #print ("visiting: " + str(node.id) + " : " + str(node.offset))
 
         fixup += emitNode(output, verboseOutput, node)
         
@@ -356,7 +359,7 @@ data = file.read()
 file.close()
 
 # print some status statements to the console
-print ("[0/6] Creating dictionary ... (this might take several minutes)" )
+print ("[0/6] Creating dictionary ... (this might take a long time)" )
 print ("[1/6] Reading XML wordlist ..." )
 
 # TST insertion
@@ -394,11 +397,15 @@ print ("[4/6] Compressing TST to DAG ...")
 tree.calculateHash(tstRoot)
 tstRoot = tree.removeDuplicates(tstRoot)
 
+print ("[5/6] Emitting TST (" +
+       str(_NodeCounter) + " - " + str(_NodeRemoveCounter) + " = " +
+       str(_NodeCounter - _NodeRemoveCounter) + " nodes).")
+
 while True:
     output = BytesIO()
     verboseOutput = StringIO()
     fixup = emitTST(output, verboseOutput, tstRoot)
-    print("[5/6] Forwarding pointer fixups remaining: " + str(fixup))
+    print("[5/6] Emitting TST (forwarding pointer fixups remaining: " + str(fixup))
     if fixup == 0:
         break
 
@@ -414,6 +421,4 @@ if options.verbose:
     f.write(verboseOutput.read().encode("utf-8"))
     f.close()
 
-print ("[6/6] Successfully created Dictionary (" +
-        str(_NodeCounter) + " - " + str(_NodeRemoveCounter) +
-        " = " + str(_NodeCounter - _NodeRemoveCounter) + " nodes).")
+print ("[6/6] Successfully created Dictionary")
