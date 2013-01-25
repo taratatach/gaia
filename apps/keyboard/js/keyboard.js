@@ -1485,7 +1485,8 @@ function updateLayoutParams() {
       keyboardHeight: getKeyCoordinateY(IMERender.getHeight()),
       keyArray: IMERender.getKeyArray(),
       keyWidth: IMERender.getKeyWidth(),
-      keyHeight: IMERender.getKeyHeight()
+      keyHeight: IMERender.getKeyHeight(),
+      alternativeKeys: currentLayout.alt || {}
     });
   }
 }
