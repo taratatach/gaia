@@ -38,40 +38,12 @@ var Predictions = (function() {
 
   var _dict; // the dictionary for the current language
   var _nearbyKeys; // nearby keys for any given key
-  var _currentWord = ''; // the word currently being edited
+  var _altKeys;
+  var _currentWordLength = 0; // the current word length
   var _prefixMatchMultiplier = 1.5; // if prefix matches, push for that candidate
   var _maxLookAhead = 2; // stop traversing the tree once we hit this length
   var _maxSuggestions = 3; // max number of suggestions to be returned
   var _maxWordLength = 32;
-
-  var _diacritics = {
-    'a':'ÁáĂăǍǎÂâÄäȦȧẠạȀȁÀàẢảȂȃĀāĄąÅåḀḁȺⱥÃãǼǽǢǣÆæ',
-    'b':'ḂḃḄḅƁɓḆḇɃƀƂƃ',
-    'c':'ĆćČčÇçĈĉĊċƇƈȻȼ',
-    'd':'ĎďḐḑḒḓḊḋḌḍƊɗḎḏĐđƋƌð',
-    'e':'ÉéĔĕĚěȨȩÊêḘḙËëĖėẸẹȄȅÈèẺẻȆȇĒēĘę',
-    'f':'ḞḟƑƒ',
-    'g':'ǴǵĞğǦǧĢģĜĝĠġƓɠḠḡǤǥ',
-    'h':'ḪḫȞȟḨḩĤĥⱧⱨḦḧḢḣḤḥĦħ',
-    'i':'ÍíĬĭǏǐÎîÏïỊịȈȉÌìỈỉȊȋĪīĮįƗɨĨĩḬḭı',
-    'j':'ĴĵɈɉ',
-    'k':'ḰḱǨǩĶķⱩⱪꝂꝃḲḳƘƙḴḵꝀꝁ',
-    'l':'ĹĺȽƚĽľĻļḼḽḶḷⱠⱡꝈꝉḺḻĿŀⱢɫŁł',
-    'm':'ḾḿṀṁṂṃⱮɱ',
-    'n':'ŃńŇňŅņṊṋṄṅṆṇǸǹƝɲṈṉȠƞÑñ',
-    'o':'ÓóŎŏǑǒÔôÖöȮȯỌọŐőȌȍÒòỎỏƠơȎȏꝊꝋꝌꝍŌōǪǫØøÕõŒœ',
-    'p':'ṔṕṖṗꝒꝓƤƥⱣᵽꝐꝑ',
-    'q':'Ꝗꝗ',
-    'r':'ŔŕŘřŖŗṘṙṚṛȐȑȒȓṞṟɌɍⱤɽ',
-    's':'ŚśŠšŞşŜŝȘșṠṡṢṣß$',
-    't':'ŤťŢţṰṱȚțȾⱦṪṫṬṭƬƭṮṯƮʈŦŧ',
-    'u':'ÚúŬŭǓǔÛûṶṷÜüṲṳỤụŰűȔȕÙùỦủƯưȖȗŪūŲųŮůŨũṴṵ',
-    'v':'ṾṿƲʋṼṽ',
-    'w':'ẂẃŴŵẄẅẆẇẈẉẀẁⱲⱳ',
-    'x':'ẌẍẊẋ',
-    'y':'ÝýŶŷŸÿẎẏỴỵỲỳƳƴỶỷỾỿȲȳɎɏỸỹ',
-    'z':'ŹźŽžẐẑⱫⱬŻżẒẓȤȥẔẕƵƶ'
-  };
 
   // Send a log message to the main thread since we can't output to the console
   // directly.
@@ -98,7 +70,8 @@ var Predictions = (function() {
   // Special characters include backspace (8), return (13), and space (32).
   function SpecialKey(key) {
     var code = key.code;
-    return code <= 32;
+    // codes: 'a' = 97, 'z' = 122
+    return code < 97 || code > 122;
   }
 
   // Generate an array of char codes from a word.
@@ -109,9 +82,9 @@ var Predictions = (function() {
   }
 
   // Convert an array of char codes back into a string.
-  function Codes2String(codes) {
-    return String.fromCharCode.apply(String, codes);
-  }
+  // function Codes2String(codes) {
+  //   return String.fromCharCode.apply(String, codes);
+  // }
 
   const SearchTST = (function() {
 
@@ -128,20 +101,15 @@ var Predictions = (function() {
       var cChild = _dict[offset + cChildIdx];
       var rChild = _dict[offset + rChildIdx];
       var frequency = _dict[offset + freqIdx];
+      var matchLength = match.length;
 
-      if (match.length > _currentWord.length + _maxLookAhead)
+      if (matchLength > _currentWordLength + _maxLookAhead)
         return;
 
       if (frequency != 0) {
-        // we need this for simple word corrections: 'wsa' -> 'was'
-        if (!origPrefix && match.length >= _currentWord.length)
-           candidates.push({ word : match, freq : frequency });
-
-        // if the original prefix matches, we have to push for that candidate
-        else if (origPrefix && match.length > _currentWord.length) {
+        if (origPrefix)
           frequency *= _prefixMatchMultiplier;
-          candidates.push({ word : match, freq : frequency });
-        }
+        candidates.push({ word : match, freq : frequency });
       }
 
       if (cChild != 0) {
@@ -152,14 +120,14 @@ var Predictions = (function() {
       if (lChild != 0) {
         var lChar = String.fromCharCode(_dict[offset + lChild]);
         findPredictionsDFS(offset + lChild,
-                           match.substring(0, match.length - 1) + lChar,
+                           match.substring(0, matchLength - 1) + lChar,
                            candidates, origPrefix);
       }
 
       if (rChild != 0) {
         var rChar = String.fromCharCode(_dict[offset + rChild]);
         findPredictionsDFS(offset + rChild,
-                           match.substring(0, match.length - 1) + rChar,
+                           match.substring(0, matchLength - 1) + rChar,
                            candidates, origPrefix);
       }
     }
@@ -180,92 +148,98 @@ var Predictions = (function() {
       var frequency = _dict[offset + freqIdx];
 
       var ch = prefix[matchLength];
-      if (ch == splitChar && cChild != 0) {
+
+      if (ch == splitChar) {
         var chStr = String.fromCharCode(ch);
-        if (prefixLength - matchLength == 1) {
-          var cChar = String.fromCharCode(_dict[offset + cChild]);
-          findPredictionsDFS(offset + cChild,
-                             match + String.fromCharCode(splitChar) + cChar,
-                             suggestions, origPrefix);
-          return;
+        if (frequency != 0 && !origPrefix && matchLength >= _currentWordLength - 1) {
+          suggestions.push({ word : match + chStr, freq: frequency });
         }
-        predict(offset + cChild, prefix, prefixLength,
-                match + chStr, suggestions, origPrefix);
-
-        if (origPrefix && prefixLength > 1) {
-
-          // //////////////////////////////////////////////////
-          // Creating alternative candidates by:
-          /////////////////////////////////////////////////////
-          
-          /////////////////////////////////////////////////////
-          // a) adding a character
-
-          // move() works like memcpy, we move all charCodes to the right
-          // to make room for adding one character
-          prefix.move(matchLength + 1, prefix.length - matchLength - 1, matchLength + 2);
-          for (var nkey in _nearbyKeys) {
-            prefix[matchLength + 1] = nkey.charCodeAt(0);
-            predict(offset + cChild, prefix, prefixLength + 1,
-                    match + chStr, suggestions, false);
+        if (cChild != 0) {
+          if (prefixLength - matchLength == 1) {
+            var cChar = String.fromCharCode(_dict[offset + cChild]);
+            findPredictionsDFS(offset + cChild,
+                               match + chStr + cChar,
+                               suggestions, origPrefix);
+            return;
           }
-          // move the memory back where it was
-          prefix.move(matchLength + 2, prefix.length - matchLength - 1, matchLength + 1);
+          predict(offset + cChild, prefix, prefixLength,
+                  match + chStr, suggestions, origPrefix);
 
-          /////////////////////////////////////////////////////
-          // b) removing a character
-          var removed = prefix[matchLength + 1];
-          prefix.move(matchLength + 2, prefix.length - matchLength - 1, matchLength + 1);
-          predict(offset + cChild, prefix, prefixLength - 1,
-                  match + chStr, suggestions, false);
-          prefix.move(matchLength + 1, prefix.length - matchLength - 1, matchLength + 2);
-          prefix[matchLength + 1] = removed;
+          if (origPrefix && prefixLength > 1) {
 
-
-          if (prefixLength >= 2) {
-
+            // //////////////////////////////////////////////////
+            // Creating alternative candidates by:
             /////////////////////////////////////////////////////
-            // c) replacing a character with its
-            //    surrounding characters (editdistance 1)
-
-            var nearbyKeys = _nearbyKeys[String.fromCharCode(prefix[matchLength + 1])];
-            if (typeof(nearbyKeys) !== 'undefined') {
-              var original = prefix[matchLength + 1];
-              for (var i = 0, len = nearbyKeys.length; i < len; ++i) {
-                prefix[matchLength + 1] = nearbyKeys[i].charCodeAt(0);
-                predict(offset + cChild, prefix, prefixLength,
-                        match + chStr, suggestions, false);
-              }
-              prefix[matchLength + 1] = original;
-            }
-
+            
             /////////////////////////////////////////////////////
-            // d) replacing one character with its
-            //    alternative keys (diacritics)
+            // a) adding a character
 
-            var altKeys = _diacritics[String.fromCharCode(prefix[matchLength + 1]).toLowerCase()];
-            if (typeof(altKeys) !== 'undefined') {
-              var original = prefix[match.length + 1];
-              for (var i = 0, len = altKeys.length; i < len; ++i) {
-                prefix[matchLength + 1] = altKeys[i].charCodeAt(0);
-                predict(offset + cChild, prefix, prefixLength,
-                        match + chStr, suggestions, false);
-              }
-              prefix[matchLength + 1] = original;
-            }
-
-            /////////////////////////////////////////////////////
-            // e) transposing characters
-
-            if (prefix.length >= 3) {
-              var idx1 = prefix[matchLength + 1];
-              var idx2 = prefix[matchLength + 2];
-              prefix[matchLength + 1] = idx2;
-              prefix[matchLength + 2] = idx1;
-              predict(offset + cChild, prefix, prefixLength,
+            // move() works like memcpy, we move all charCodes to the right
+            // to make room for adding one character
+            prefix.move(matchLength + 1, prefix.length - matchLength - 1, matchLength + 2);
+            for (var nkey in _nearbyKeys) {
+              prefix[matchLength + 1] = nkey.charCodeAt(0);
+              predict(offset + cChild, prefix, prefixLength + 1,
                       match + chStr, suggestions, false);
-              prefix[matchLength + 1] = idx1;
-              prefix[matchLength + 2] = idx2;
+            }
+            // move the memory back where it was
+            prefix.move(matchLength + 2, prefix.length - matchLength - 1, matchLength + 1);
+
+            /////////////////////////////////////////////////////
+            // b) removing a character
+            var removed = prefix[matchLength + 1];
+            prefix.move(matchLength + 2, prefix.length - matchLength - 1, matchLength + 1);
+            predict(offset + cChild, prefix, prefixLength - 1,
+                    match + chStr, suggestions, false);
+            prefix.move(matchLength + 1, prefix.length - matchLength - 1, matchLength + 2);
+            prefix[matchLength + 1] = removed;
+
+
+            if (prefixLength >= 2) {
+
+              /////////////////////////////////////////////////////
+              // c) replacing a character with its
+              //    surrounding characters (editdistance 1)
+
+              var nearbyKeys = _nearbyKeys[String.fromCharCode(prefix[matchLength + 1])];
+              if (typeof(nearbyKeys) !== 'undefined') {
+                var original = prefix[matchLength + 1];
+                for (var i = 0, len = nearbyKeys.length; i < len; ++i) {
+                  prefix[matchLength + 1] = nearbyKeys[i].charCodeAt(0);
+                  predict(offset + cChild, prefix, prefixLength,
+                          match + chStr, suggestions, false);
+                }
+                prefix[matchLength + 1] = original;
+              }
+
+              /////////////////////////////////////////////////////
+              // d) replacing one character with its
+              //    alternative keys (diacritics)
+
+              var altKeys = _altKeys[String.fromCharCode(prefix[matchLength + 1])];
+              if (typeof(altKeys) !== 'undefined') {
+                var original = prefix[match.length + 1];
+                for (var i = 0, len = altKeys.length; i < len; ++i) {
+                  prefix[matchLength + 1] = altKeys[i].charCodeAt(0);
+                  predict(offset + cChild, prefix, prefixLength,
+                          match + chStr, suggestions, false);
+                }
+                prefix[matchLength + 1] = original;
+              }
+
+              /////////////////////////////////////////////////////
+              // e) transposing characters
+
+              if (prefix.length >= 3) {
+                var idx1 = prefix[matchLength + 1];
+                var idx2 = prefix[matchLength + 2];
+                prefix[matchLength + 1] = idx2;
+                prefix[matchLength + 2] = idx1;
+                predict(offset + cChild, prefix, prefixLength,
+                        match + chStr, suggestions, false);
+                prefix[matchLength + 1] = idx1;
+                prefix[matchLength + 2] = idx2;
+              }
             }
           }
         }
@@ -310,7 +284,7 @@ var Predictions = (function() {
       // if we still don't have at least 3 candidates, we replace
       // the first character with available diacritics for
       // that character.
-      var altkeys = _diacritics[prefix[0].toLowerCase()];
+      var altkeys = _altKeys[prefix[0]];
       if (typeof(altkeys) === 'undefined')
         return;
 
@@ -342,7 +316,7 @@ var Predictions = (function() {
   }
  
   function Predict(word) {
-    _currentWord = word;
+    _currentWordLength = word.length;
     var candidates = [];
  
     SearchTST(word, candidates);
@@ -361,6 +335,19 @@ var Predictions = (function() {
   }
 
   function setLayout(params) {
+    // Set all alternative keys (diacritics) for that key
+    // separate upper and lower case values
+    _altKeys = {};
+    var altMap = params.alternativeKeys;
+    for (var key in altMap) {
+      if (SpecialKey(key))
+        continue;
+      _altKeys[key] = altMap[key];
+      if (_altKeys[key.toUpperCase()] === undefined) {
+        _altKeys[key.toUpperCase()] = altMap[key].toUpperCase();
+      }
+    }
+
     // For each key, calculate the keys nearby.
     var keyWidth = params.keyWidth;
     var keyHeight = params.keyHeight;

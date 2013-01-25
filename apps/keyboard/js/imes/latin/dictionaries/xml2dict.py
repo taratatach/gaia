@@ -10,6 +10,8 @@ import sys, struct, operator, heapq
 
 _NodeCounter = 0
 _NodeRemoveCounter = 0
+_NodeVisitCounter = 0
+_EmitCounter = 0
 
 # Data Structure for TST Tree
 class TSTNode:
@@ -184,6 +186,13 @@ class TSTTree:
 
     # remove duplicates suffixes starting from the longest one
     def removeDuplicates(self, node):
+        global _NodeVisitCounter
+        _NodeVisitCounter += 1
+        if (_NodeVisitCounter % 1000 == 0):
+            print ("          >>> (visting: " +
+                   str(_NodeVisitCounter) + "/" + str(_NodeCounter) +
+                   ", removed: " + str(_NodeRemoveCounter) + ")")
+
         if node.left:
             # if the node already exists in the table
             # (checkAndRemoveDuplicate returns false),
@@ -310,6 +319,7 @@ def emitNode(output, verboseOutput, node):
 
 # emit the tree BFS
 def emitTST(output, verboseOutput, root):
+    global _EmitCounter
     fixup = 0
     queue = []
     visited = []
@@ -321,7 +331,10 @@ def emitTST(output, verboseOutput, root):
             continue;
         visited.append(node.id)
 
-        #print ("visiting: " + str(node.id) + " : " + str(node.offset))
+        _EmitCounter += 1
+        if (_EmitCounter % 1000 == 0):
+            print("          >>> (emitting " + str(_EmitCounter) + "/" +
+                  str(_NodeCounter - _NodeRemoveCounter) + ")")
 
         fixup += emitNode(output, verboseOutput, node)
         
@@ -359,8 +372,8 @@ data = file.read()
 file.close()
 
 # print some status statements to the console
-print ("[0/6] Creating dictionary ... (this might take a long time)" )
-print ("[1/6] Reading XML wordlist ..." )
+print ("[0/7] Creating dictionary ... (this might take a long time)" )
+print ("[1/7] Reading XML wordlist ..." )
 
 # TST insertion
 TSTIndex = {}
@@ -385,27 +398,29 @@ for word in words:
         continue;
     TSTIndex[text] = freq
 
-print ("[2/6] Creating Ternary Search Tree for " + str(len(TSTIndex)) + " words ...")
+print ("[2/7] Creating Ternary Search Tree for " + str(len(TSTIndex)) + " words ...")
 
 tree = TSTTree()
 tstRoot = buildTST(tree)
 
-print ("[3/6] Balancing Ternary Search Tree ...")
+print ("[3/7] Balancing Ternary Search Tree ...")
 tstRoot = tree.balance(tstRoot)
 
-print ("[4/6] Compressing TST to DAG ...")
+print ("[4/7] Calculating hash for nodes ...")
 tree.calculateHash(tstRoot)
+print ("[5/7] Compressing TST to DAG ... (removing duplicate nodes)")
 tstRoot = tree.removeDuplicates(tstRoot)
 
-print ("[5/6] Emitting TST (" +
+print ("[6/7] Emitting TST ... (" +
        str(_NodeCounter) + " - " + str(_NodeRemoveCounter) + " = " +
        str(_NodeCounter - _NodeRemoveCounter) + " nodes).")
 
 while True:
+    _EmitCounter = 0
     output = BytesIO()
     verboseOutput = StringIO()
     fixup = emitTST(output, verboseOutput, tstRoot)
-    print("[5/6] Emitting TST (forwarding pointer fixups remaining: " + str(fixup))
+    print("[6/7] Emitting TST ... (forwarding pointer fixups remaining: " + str(fixup) +")")
     if fixup == 0:
         break
 
