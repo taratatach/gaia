@@ -82,9 +82,9 @@ var Predictions = (function() {
   }
 
   // Convert an array of char codes back into a string.
-  // function Codes2String(codes) {
-  //   return String.fromCharCode.apply(String, codes);
-  // }
+  function Codes2String(codes) {
+    return String.fromCharCode.apply(String, codes);
+  }
 
   const SearchTST = (function() {
 
@@ -151,11 +151,10 @@ var Predictions = (function() {
 
       if (ch == splitChar) {
         var chStr = String.fromCharCode(ch);
-        if (frequency != 0 && !origPrefix && matchLength >= _currentWordLength - 1) {
-          suggestions.push({ word : match + chStr, freq: frequency });
-        }
         if (cChild != 0) {
           if (prefixLength - matchLength == 1) {
+            if (frequency != 0)
+              suggestions.push({ word : match + chStr, freq: frequency });
             var cChar = String.fromCharCode(_dict[offset + cChild]);
             findPredictionsDFS(offset + cChild,
                                match + chStr + cChar,
@@ -204,8 +203,12 @@ var Predictions = (function() {
               var nearbyKeys = _nearbyKeys[String.fromCharCode(prefix[matchLength + 1])];
               if (typeof(nearbyKeys) !== 'undefined') {
                 var original = prefix[matchLength + 1];
+                var replace;
                 for (var i = 0, len = nearbyKeys.length; i < len; ++i) {
-                  prefix[matchLength + 1] = nearbyKeys[i].charCodeAt(0);
+                  replace = nearbyKeys[i].charCodeAt(0);
+                  if (original == replace)
+                    continue;
+                  prefix[matchLength + 1] = replace;
                   predict(offset + cChild, prefix, prefixLength,
                           match + chStr, suggestions, false);
                 }
@@ -218,9 +221,13 @@ var Predictions = (function() {
 
               var altKeys = _altKeys[String.fromCharCode(prefix[matchLength + 1])];
               if (typeof(altKeys) !== 'undefined') {
-                var original = prefix[match.length + 1];
+                var original = prefix[matchLength + 1];
+                var replace;
                 for (var i = 0, len = altKeys.length; i < len; ++i) {
-                  prefix[matchLength + 1] = altKeys[i].charCodeAt(0);
+                  replace = altKeys[i].charCodeAt(0);
+                  if (original == replace)
+                    continue;
+                  prefix[matchLength + 1] = replace;
                   predict(offset + cChild, prefix, prefixLength,
                           match + chStr, suggestions, false);
                 }
@@ -230,7 +237,7 @@ var Predictions = (function() {
               /////////////////////////////////////////////////////
               // e) transposing characters
 
-              if (prefix.length >= 3) {
+              if (prefixLength >= 3) {
                 var idx1 = prefix[matchLength + 1];
                 var idx2 = prefix[matchLength + 2];
                 prefix[matchLength + 1] = idx2;
@@ -271,11 +278,19 @@ var Predictions = (function() {
       // if we don't find at least 3 candidates, we replace
       // the first character with all possible upper and
       // lower case characters
+      var original = input[0];
+      var replace;
       for (var altkey in _nearbyKeys) {
-        input[0] = altkey.charCodeAt(0);
-        predict(0, input, prefixLength, '', suggestions, false);
-        input[0] = altkey.toUpperCase().charCodeAt(0);
-        predict(0, input, prefixLength, '', suggestions, false);
+        replace = altkey.charCodeAt(0);
+        if (original != replace) {
+          input[0] = replace;
+          predict(0, input, prefixLength, '', suggestions, false);
+        }
+        replace = altkey.toUpperCase().charCodeAt(0);
+        if (original != replace) {
+          input[0] = replace;
+          predict(0, input, prefixLength, '', suggestions, false);
+        }
       }
       
       if (suggestions.length >= 3)
@@ -380,20 +395,14 @@ var Predictions = (function() {
 
   // Return an array of predictions for the given prefix
   function predict(prefix) {
-    try {
     if (!_dict || !_nearbyKeys) {
       throw Error('not initialized');
     }
 
     // Get the raw predictions
     var predictions = Predict(prefix);
-    }
-    catch (e) {
-      dump ("exception: " + e + "\n");
-    }
-
+  
     var finalPredictions = [];
-
 
     // Extract just the words and return an array of strings
     for (var n = 0, len = predictions.length; n < len; ++n) {
