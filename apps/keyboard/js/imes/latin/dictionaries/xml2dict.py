@@ -7,6 +7,7 @@ from io import BytesIO
 from StringIO import StringIO
 from collections import defaultdict
 import sys, struct, operator, heapq
+from sets import Set
 
 _NodeCounter = 0
 _NodeRemoveCounter = 0
@@ -217,48 +218,6 @@ class TSTTree:
                 self.removeDuplicates(node.center)
         return node
 
-    # # traverse the tree using DFS to find all possible candidates
-    # # starting with the given prefix
-    # def findPredictions(self, node, match, suggestions):
-
-    #     if node.frequency != 0:
-    #         suggestions.append([match, node.frequency])
-
-    #     if not node.center and not node.left and not node.right:
-    #         return
-
-    #     if node.center:
-    #         self.findPredictions(node.center, match + node.center.ch, suggestions)
-
-    #     if node.right:
-    #         self.findPredictions(node.right, match[:-1] + node.right.ch, suggestions)
-
-    #     if node.left:
-    #         self.findPredictions(node.left, match[:-1] + node.left.ch, suggestions)
-
-    # def predict(self, node, prefix, match, suggestions):
-    #     if len(prefix) <= 0:
-    #         return
-
-    #     ch = prefix[0]
-
-    #     if ch < node.ch:
-    #         if not node.left:
-    #             return
-    #         self.predict(node.left, prefix, match, suggestions)
-    #     elif ch > node.ch:
-    #         if not node.right:
-    #             return
-    #         self.predict(node.right, prefix, match, suggestions)
-    #     else:
-    #         if (len(prefix) == 1):
-    #             if node.frequency != 0:
-    #                 suggestions.append([match, node.frequency])
-    #             if node.center:
-    #                 self.findPredictions(node.center, match+node.ch+node.center.ch, suggestions)
-    #             return
-    #         self.predict(node.center, prefix[1:], match+ch, suggestions)
-
 def buildTST(tree):
     root = None
     count = 0
@@ -269,24 +228,30 @@ def buildTST(tree):
 def writeInt32(output, int32):
     output.write(struct.pack("i", int32))
 
-def writeChar(output, ch):
-    writeInt32(output, ord(ch))
+# def writeChar(output, ch):
+#     writeInt32(output, ord(ch))
+
+def writeCharFreqUnion(output, ch, freq):
+    union = ord(ch) ^ (freq << 16)
+    writeInt32(output, union)
 
 # offset is a byteoffset, so we have to calculate
 # the correct index for an Int32Array
 def emitOffset(output, offset):
     writeInt32(output, offset/4)
 
-def emitNode(output, verboseOutput, node):
+def emitNode(output, node):
     fixup = 0
-    writeChar(output, node.ch)
+
+    # write character and frequency
+    writeCharFreqUnion(output, node.ch, node.frequency)
+
     offset = output.tell()
     # set the default
     # node.offset = gettAttr(node, "offset", -1)
     if node.offset != offset:
         node.offset = offset
         fixup += 1
-    verboseOutput.write("["+ str((node.offset-1)/4) +"] { ch: " + node.ch)
 
     # emit the left child
     if node.left:
@@ -294,7 +259,6 @@ def emitNode(output, verboseOutput, node):
             fixup += 1
             node.leftOffset = node.left.offset
     emitOffset(output, (node.leftOffset - node.offset) if node.left else 0)
-    verboseOutput.write(", l: " + str(max(node.leftOffset-1,0)/4))
     
     # emit the center child
     if node.center:
@@ -302,7 +266,6 @@ def emitNode(output, verboseOutput, node):
             fixup += 1
             node.centerOffset = node.center.offset
     emitOffset(output, (node.centerOffset - node.offset) if node.center else 0)
-    verboseOutput.write(", c: " + str(max(node.centerOffset-1,0)/4))
  
     # emit the right child
     if node.right:
@@ -310,33 +273,29 @@ def emitNode(output, verboseOutput, node):
             fixup += 1
             node.rightOffset = node.right.offset
     emitOffset(output, (node.rightOffset - node.offset) if node.right else 0)
-    verboseOutput.write(", r: " + str(max(node.rightOffset-1,0)/4))
 
-    # emit the frequency of the node
-    writeInt32(output, node.frequency)
-    verboseOutput.write(", f: " + str(node.frequency) + "}\n")
     return fixup
 
 # emit the tree BFS
-def emitTST(output, verboseOutput, root):
+def emitTST(output, root):
     global _EmitCounter
     fixup = 0
     queue = []
-    visited = []
+    visited = Set()
     queue.append(root)
 
     while queue:
         node = queue.pop(0)
         if node.id in visited:
             continue;
-        visited.append(node.id)
+        visited.add(node.id)
 
         _EmitCounter += 1
         if (_EmitCounter % 1000 == 0):
             print("          >>> (emitting " + str(_EmitCounter) + "/" +
                   str(_NodeCounter - _NodeRemoveCounter) + ")")
 
-        fixup += emitNode(output, verboseOutput, node)
+        fixup += emitNode(output, node)
         
         if node.left:
             queue.append(node.left)
@@ -353,7 +312,6 @@ def emitTST(output, verboseOutput, root):
 #
 use = "Usage: %prog [options] dictionary.xml"
 parser = OptionParser(usage = use)
-parser.add_option("-v", "--verbose", dest="verbose", action="store_true", default=False, help="Set mode to verbose.")
 parser.add_option("-o", "--output", dest="output", metavar="FILE", help="write output to FILE")
 options, args = parser.parse_args()
 
@@ -418,8 +376,7 @@ print ("[6/7] Emitting TST ... (" +
 while True:
     _EmitCounter = 0
     output = BytesIO()
-    verboseOutput = StringIO()
-    fixup = emitTST(output, verboseOutput, tstRoot)
+    fixup = emitTST(output, tstRoot)
     print("[6/7] Emitting TST ... (forwarding pointer fixups remaining: " + str(fixup) +")")
     if fixup == 0:
         break
@@ -429,11 +386,5 @@ output.seek(0)
 f = open(options.output, "w")
 f.write(output.read())
 f.close()
-
-if options.verbose:
-    verboseOutput.seek(0)
-    f = open(options.output + ".tst", "w")
-    f.write(verboseOutput.read().encode("utf-8"))
-    f.close()
 
 print ("[6/6] Successfully created Dictionary")
