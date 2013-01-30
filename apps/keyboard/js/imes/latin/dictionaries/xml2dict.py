@@ -349,10 +349,12 @@ for word in words:
     else:
         flags = ""
     freq = int(attr.get("f").nodeValue)
-    if flags == "abbreviation" or freq <= 1:
+    if flags == "abbreviation":
         continue
+    if freq == 0:
+        freq = 1
     text = word.childNodes[0].nodeValue
-    if len(text) <= 1:
+    if len(text) < 1:
         continue;
     TSTIndex[text] = freq
 
