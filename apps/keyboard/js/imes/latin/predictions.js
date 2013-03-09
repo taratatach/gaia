@@ -39,9 +39,10 @@ var Predictions = (function() {
   var _dict; // the dictionary for the current language
   var _nearbyKeys; // nearby keys for any given key
   var _altKeys;
+  var _charMap; // diacritics table (mapping diacritics to the base letter)
   var _currentWordLength = 0; // the current word length
-  var _prefixMatchMultiplier = 1.5; // if prefix matches, push for that candidate
-  var _maxLookAhead = 2; // stop traversing the tree once we hit this length
+  //var _prefixMatchMultiplier = 1.5; // if prefix matches, push for that candidate
+  var _maxLookAhead = 6; // stop traversing the tree once we hit this length
   var _maxSuggestions = 3; // max number of suggestions to be returned
   var _maxWordLength = 32;
 
@@ -70,8 +71,8 @@ var Predictions = (function() {
   // Special characters include backspace (8), return (13), and space (32).
   function SpecialKey(key) {
     var code = key.code;
-    // codes: 'a' = 97, 'z' = 122
-    return code < 97 || code > 122;
+    // codes: 'a' = 97, 'z' = 122, '-' = 45
+    return code <= 32;
   }
 
   // Generate an array of char codes from a word.
@@ -85,6 +86,148 @@ var Predictions = (function() {
   function Codes2String(codes) {
     return String.fromCharCode.apply(String, codes);
   }
+
+  // multipliers used in RankCandidate to calculate the
+  // final rank of a candidate.
+
+  // promote words where prefix matches
+  // ab -> promote words that start with 'ab'
+  const PrefixMatchMultiplier = 3;
+
+  // words where accidentaly the wrong key was pressed
+  // qas -> was
+  // w - neighbourKeys [q,e,a,s,d]
+  const EditDistanceMultiplier = 1.8;
+
+  // promote words where 2 characters are swapped
+  // tihs -> this
+  const TranspositionMultiplier = 1.6;
+
+  // words with a missing character
+  // tis -> this
+  const OmissionMultiplier = 1.4;
+
+  const DeletionMultiplier = 1.2;
+
+  // words where accidentaly a nearby key was pressed as well
+  // thids -> this
+  const AdditionMultiplier = 1.4; // totally arbitrary for now
+
+  // words in which we changed a letter for its diacritical form
+  // etre -> être (French for 'to be')
+  const DiacriticMultiplier = 5; // totally arbitrary for now
+
+  const RankCandidate = (function() {
+
+    return function(word, cand) {
+
+      var rank = cand.freq;
+      var length = cand.word.length;
+      var rankMultiplier = cand.rankMultiplier;
+      var candWord = cand.word;
+
+      // rank words with smaller edit distance higher up
+      // e.g. editdistance = 1, then fact = 1.9
+      //      editdistance = 2, then fact = 1.8
+      var factor = 1 + ((10 - Math.min(9, cand.distance)) / 10);
+      rank *= factor;
+
+      // take input length into account
+      // length = 1 then fact = 1.1
+      //        = 2 then fact = 1.2
+      if (rankMultiplier == PrefixMatchMultiplier) {
+        var lengthFactor = 1 + ((Math.min(9, length)) / 10);
+        rank *= PrefixMatchMultiplier * lengthFactor;
+      }
+      else {
+        // TranspositionMultiplier, EditDistanceMultiplier
+        // OmissionMultiplier, DeletionMultiplier
+        // AdditionMultiplier, DiacriticMultiplier
+        rank *= rankMultiplier;
+      }
+
+      return rank;
+    };
+  })();
+
+  // Map an array of codes to the base letters, eliminating any diacritics.
+  function MapCodesToBaseLetters(codes, length) {
+    for (var n = 0; n < length; ++n)
+      codes[n] = _charMap[codes[n]];
+    return codes;
+  }
+
+  const LevenshteinDistance = (function() {
+    var s_matrix = [];
+    var s_a = Uint32Array(64);
+    var s_b = Uint32Array(64);
+
+    return function(a, b) {
+      var a_length = a.length;
+      var b_length = b.length;
+
+      if (!a_length)
+        return b_length;
+      if (!b_length)
+        return a_length;
+
+      // Make sure the static typed arrays we use are long enough to hold the
+      // strings.
+      if (s_a.length < a_length)
+        s_a = Uint32Array(a_length);
+      if (s_b.length < b_length)
+        s_b = Uint32Array(b_length);
+
+      // Convert both strings to base letters, eliminating all diacritics.
+      a = MapCodesToBaseLetters(String2Codes(s_a, a), a.length);
+      b = MapCodesToBaseLetters(String2Codes(s_b, b), b.length);
+
+      // Re-use the same array between computations to avoid excessive garbage
+      // collections.
+      var matrix = s_matrix;
+
+      // Ensure that the matrix is large enough.
+      while (matrix.length <= b_length)
+        matrix.push([]);
+
+      // Increment along the first column of each row.
+      for (var i = 0; i <= b_length; i++)
+        matrix[i][0] = i;
+
+      // increment each column in the first row
+      for (var j = 0; j <= a_length; j++)
+        matrix[0][j] = j;
+
+      // Fill in the rest of the matrix
+      for (i = 1; i <= b_length; i++) {
+        for (j = 1; j <= a_length; j++) {
+          if (b[i - 1] == a[j - 1]) {
+            matrix[i][j] = matrix[i - 1][j - 1];
+          } else {
+            matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, // substitution
+                                    Math.min(matrix[i][j - 1] + 1, // insertion
+                                             matrix[i - 1][j] + 1)); // deletion
+          }
+          // Damerau-Levenshtein extension to the base Levenshtein algorithm to
+          // support transposition.
+          if (i > 1 &&
+              j > 1 &&
+              b[i - 1] == a[j - 2] &&
+              b[i - 2] == a[j - 1]) {
+            matrix[i][j] = Math.min(matrix[i][j],
+                                    matrix[i - 2][j - 2] +
+                                    (b[i - 1] == a[j - 1] ?
+                                     0 : // match
+                                     1 // transposition
+                                    ));
+          }
+        }
+      }
+
+      return matrix[b_length][a_length];
+    };
+  })();
+
 
   const SearchTST = (function() {
 
@@ -104,7 +247,7 @@ var Predictions = (function() {
 
     // Traverse the tst using DFS to find all possible candidates
     // starting with the given prefix
-    function findPredictionsDFS(offset, match, candidates, orig) {
+    function findPredictionsDFS(offset, match, candidates, edits, multiplier, lookAhead) {
       var frequency = extractFrequencyFromUnion(_dict[offset]);
       var lChild = _dict[offset + lChildIdx];
       var cChild = _dict[offset + cChildIdx];
@@ -112,62 +255,74 @@ var Predictions = (function() {
 
       var matchLength = match.length;
 
-      if (matchLength > _currentWordLength + _maxLookAhead)
+      if (matchLength > _currentWordLength + lookAhead)
         return;
 
       if (frequency != 0) {
-        if (orig)
-          frequency *= _prefixMatchMultiplier;
-        candidates.push({ word : match, freq : frequency });
+        //if (edits)
+        //  multiplier *= 1 - (edits / 10);
+        candidates.push({ word: match, freq: frequency, rankMultiplier: multiplier });
       }
 
       if (cChild != 0) {
         var cChar = String.fromCharCode(_dict[offset + cChild]);
-        findPredictionsDFS(offset + cChild, match + cChar, candidates, orig);
+        var lCandidates = candidates.length;
+        do {
+          findPredictionsDFS(offset + cChild, match + cChar, candidates, edits, multiplier, lookAhead);
+          lookAhead *= 2;
+        } while (candidates.length == lCandidates);
       }
 
       if (lChild != 0) {
         var lChar = String.fromCharCode(_dict[offset + lChild]);
-        findPredictionsDFS(offset + lChild,
+        var lCandidates = candidates.length;
+        do {
+          findPredictionsDFS(offset + lChild,
                            match.substring(0, matchLength - 1) + lChar,
-                           candidates, orig);
+                           candidates, edits, multiplier, lookAhead);
+          lookAhead *= 2;
+        } while (candidates.length == lCandidates);
       }
 
       if (rChild != 0) {
         var rChar = String.fromCharCode(_dict[offset + rChild]);
-        findPredictionsDFS(offset + rChild,
+        var lCandidates = candidates.length;
+        do {
+          findPredictionsDFS(offset + rChild,
                            match.substring(0, matchLength - 1) + rChar,
-                           candidates, orig);
+                           candidates, edits, multiplier, lookAhead);
+          lookAhead *= 2;
+        } while (candidates.length == lCandidates);
       }
     }
 
     // Generate a candidate by adding a character
-    function addChars(offset, prefix, prefixLen, match, suggestions) {
+    function addChars(offset, prefix, prefixLen, match, edits, suggestions) {
       var matchLength = match.length;
       // move() works like memcpy, we move all charCodes to the right
       // to make room for adding one character
       prefix.move(matchLength, prefix.length - matchLength - 1, matchLength + 1);
       for (var nkey in _nearbyKeys) {
         prefix[matchLength] = nkey.charCodeAt(0);
-        predict(offset, prefix, prefixLen + 1, match, suggestions, false);
+        predict(offset, prefix, prefixLen + 1, match, suggestions, edits, AdditionMultiplier);
       }
       // move the memory back where it was
       prefix.move(matchLength + 1, prefix.length - matchLength - 1, matchLength);
     }
 
     // Generate a candidate by removing a character
-    function removeChars(offset, prefix, prefixLen, match, suggestions) {
+    function removeChars(offset, prefix, prefixLen, match, edits, suggestions) {
       var matchLength = match.length;
       var removed = prefix[matchLength];
       prefix.move(matchLength + 1, prefix.length - matchLength - 1, matchLength);
-      predict(offset, prefix, prefixLen - 1, match, suggestions, false);
+      predict(offset, prefix, prefixLen - 1, match, suggestions, edits, OmissionMultiplier);
       prefix.move(matchLength, prefix.length - matchLength - 1, matchLength + 1);
       prefix[matchLength] = removed;
     }
 
     // Generate a candidate by replacing a character with its
     // surrounding characters (editdistance 1)
-    function surroundingChars(offset, prefix, prefixLen, match, suggestions) {
+    function surroundingChars(offset, prefix, prefixLen, match, edits, suggestions) {
       var matchLength = match.length;
       var nearbyKeys = _nearbyKeys[String.fromCharCode(prefix[matchLength])];
       if (typeof(nearbyKeys) === 'undefined')
@@ -179,17 +334,17 @@ var Predictions = (function() {
         if (original == replace)
           continue;
         prefix[matchLength] = replace;
-        predict(offset, prefix, prefixLen, match, suggestions, false);
+        predict(offset, prefix, prefixLen, match, suggestions, edits, EditDistanceMultiplier);
       }
       prefix[matchLength] = original;
     }
 
     // Generate a candidate by replacing a character with its
     // alternative characters (diacritics)
-    function alternativeChars(offset, prefix, prefixLen, match, suggestions) {
+    function alternativeChars(offset, prefix, prefixLen, match, edits, suggestions) {
       var matchLength = match.length;
       var altKeys = _altKeys[String.fromCharCode(prefix[matchLength])];
-      if (typeof(altKeys) === 'undefined')
+       if (typeof(altKeys) === 'undefined')
         return;
       var original = prefix[matchLength];
       var replace;
@@ -198,27 +353,26 @@ var Predictions = (function() {
         if (original == replace)
           continue;
         prefix[matchLength] = replace;
-        predict(offset, prefix, prefixLen, match, suggestions, false);
+        predict(offset, prefix, prefixLen, match, suggestions, edits, DiacriticMultiplier);
       }
       prefix[matchLength] = original;
     }
 
     // Generate a candidate by transposing its characters
-    function transposeChars(offset, prefix, prefixLen, match, suggestions) {
+    function transposeChars(offset, prefix, prefixLen, match, edits, suggestions) {
       var matchLength = match.length;
       var idx1 = prefix[matchLength];
       var idx2 = prefix[matchLength + 1];
       prefix[matchLength] = idx2;
       prefix[matchLength + 1] = idx1;
-      predict(offset, prefix, prefixLen, match, suggestions, false);
+      predict(offset, prefix, prefixLen, match, suggestions, edits, TranspositionMultiplier);
       prefix[matchLength] = idx1;
       prefix[matchLength + 1] = idx2;
     }
 
-    // orig indicates that the prefix was not modified through
+    // edits indicates how many times prefix was modified
     // insertion, deletion, transposition of characters
-    function predict(offset, prefix, prefixLen, match, suggestions, orig) {
-
+    function predict(offset, prefix, prefixLen, match, suggestions, edits, multiplier) {
       var matchLength = match.length;
 
       if (matchLength > prefixLen)
@@ -235,30 +389,39 @@ var Predictions = (function() {
 
       if (ch == splitChar) {
         var chStr = String.fromCharCode(ch);
-
+     
         if (cChild != 0) {
           var coffset = offset + cChild;
           var cmatch = match + chStr;
-
+     
           if (prefixLen - matchLength == 1) {
             if (frequency != 0)
-              suggestions.push({ word : match + chStr, freq: frequency });
+              suggestions.push({ word : match + chStr, freq: frequency, rankMultiplier: multiplier });
 
             var cChar = String.fromCharCode(_dict[coffset]);
-            findPredictionsDFS(coffset, cmatch + cChar, suggestions, orig);
+            var lookAhead = Math.min(_currentWordLength, _maxLookAhead);
+            var lSuggestions = suggestions.length;
+            do {
+              findPredictionsDFS(coffset, cmatch + cChar, suggestions, edits, multiplier, lookAhead);
+              lookAhead *= 2;
+            } while (suggestions.length == lSuggestions);
+            if (prefixLen == 1 && edits == 0) {
+              edits++;
+              alternativeChars(0, prefix, prefixLen, match, edits, suggestions);
+            }
             return;
           }
-          predict(coffset, prefix, prefixLen, cmatch, suggestions, orig);
+          predict(coffset, prefix, prefixLen, cmatch, suggestions, edits, multiplier);
 
-          if (orig && prefixLen > 1) {
-            addChars(coffset, prefix, prefixLen, cmatch, suggestions);
-            removeChars(coffset, prefix, prefixLen, cmatch, suggestions);
-
+           if (edits < 2) {
+            edits++;
+            alternativeChars(offset, prefix, prefixLen, match, edits, suggestions);
+            addChars(coffset, prefix, prefixLen, cmatch, edits, suggestions);
             if (prefixLen >= 2) {
-              surroundingChars(coffset, prefix, prefixLen, cmatch, suggestions);
-              alternativeChars(coffset, prefix, prefixLen, cmatch, suggestions);
+              removeChars(coffset, prefix, prefixLen, cmatch, edits, suggestions);
+              surroundingChars(coffset, prefix, prefixLen, cmatch, edits, suggestions);
               if (prefixLen >= 3) {
-                transposeChars(coffset, prefix, prefixLen, cmatch, suggestions);
+                transposeChars(coffset, prefix, prefixLen, cmatch, edits, suggestions);
               }
             }
           }
@@ -267,10 +430,10 @@ var Predictions = (function() {
 
       // traverse the left and right childnodes
       if (ch < splitChar && lChild != 0) {
-        predict(offset + lChild, prefix, prefixLen, match, suggestions, orig);
+        predict(offset + lChild, prefix, prefixLen, match, suggestions, edits, multiplier);
       }
       if (ch > splitChar && rChild != 0) {
-        predict(offset + rChild, prefix, prefixLen, match, suggestions, orig);
+        predict(offset + rChild, prefix, prefixLen, match, suggestions, edits, multiplier);
       }
     }
 
@@ -282,12 +445,13 @@ var Predictions = (function() {
       if (prefixLen > _maxWordLength - 1)
         return;
 
-      var input = String2Codes(new Uint32Array(_maxWordLength), prefix);
-      predict(0, input, prefixLen, '', suggestions, true);
+      var input = String2Codes(new Uint32Array(_maxWordLength), prefix.toLowerCase());
+      predict(0, input, prefixLen, '', suggestions, 0, PrefixMatchMultiplier);
 
       if (suggestions.length >= 3)
         return;
 
+      /*
       // if we don't find at least 3 candidates, we replace
       // the first character with all possible upper and
       // lower case characters
@@ -320,6 +484,7 @@ var Predictions = (function() {
         input[0] = altkey.charCodeAt(0);
         predict(0, input, prefixLen, '', suggestions, false);
       }
+      */
     }
 
     return (function(prefix, candidates) {
@@ -333,7 +498,7 @@ var Predictions = (function() {
     for (var i = length - 1; i >= 0; i--) {
       if (candidate.word == topCandidates[i].word)
         return;
-      if (candidate.freq > topCandidates[i].freq)
+      if (candidate.rank > topCandidates[i].rank)
         index = i;
     }
     if (index >= _maxSuggestions)
@@ -345,16 +510,27 @@ var Predictions = (function() {
  
   function Predict(word) {
     _currentWordLength = word.length;
+    var lowerCaseWord = word.toLowerCase();
     var candidates = [];
- 
+
     SearchTST(word, candidates);
 
     // rank candidates
     var finalCandidates = [];
+    // Sort the candidates by Levenshtein distance and rank.
     for (var n = 0, len = candidates.length; n < len; ++n) {
       var candidate = candidates[n];
+
+      // Skip candidates equal to input and shorter candidates
+      if (candidate.word == lowerCaseWord ||
+          candidate.word.length < lowerCaseWord.length) {
+        continue;
+      }
+      candidate.distance = LevenshteinDistance(lowerCaseWord, candidate.word);
+      candidate.rank = RankCandidate(word, candidate);
       maintainTopCandidates(finalCandidates, candidate);
     }
+
     return finalCandidates;
   }
 
@@ -363,18 +539,67 @@ var Predictions = (function() {
   }
 
   function setLayout(params) {
+    // Fill the diacritics array
+    var diacritics = {
+      'a': 'ÁáĂăǍǎÂâÄäȦȧẠạȀȁÀàẢảȂȃĀāĄąÅåḀḁȺⱥÃãǼǽǢǣÆæ',
+      'b': 'ḂḃḄḅƁɓḆḇɃƀƂƃ',
+      'c': 'ĆćČčÇçĈĉĊċƇƈȻȼ',
+      'd': 'ĎďḐḑḒḓḊḋḌḍƊɗḎḏĐđƋƌð',
+      'e': 'ÉéĔĕĚěȨȩÊêḘḙËëĖėẸẹȄȅÈèẺẻȆȇĒēĘę',
+      'f': 'ḞḟƑƒ',
+      'g': 'ǴǵĞğǦǧĢģĜĝĠġƓɠḠḡǤǥ',
+      'h': 'ḪḫȞȟḨḩĤĥⱧⱨḦḧḢḣḤḥĦħ',
+      'i': 'ÍíĬĭǏǐÎîÏïỊịȈȉÌìỈỉȊȋĪīĮįƗɨĨĩḬḭı',
+      'j': 'ĴĵɈɉ',
+      'k': 'ḰḱǨǩĶķⱩⱪꝂꝃḲḳƘƙḴḵꝀꝁ',
+      'l': 'ĹĺȽƚĽľĻļḼḽḶḷⱠⱡꝈꝉḺḻĿŀⱢɫŁł',
+      'm': 'ḾḿṀṁṂṃⱮɱ',
+      'n': 'ŃńŇňŅņṊṋṄṅṆṇǸǹƝɲṈṉȠƞÑñ',
+      'o': 'ÓóŎŏǑǒÔôÖöȮȯỌọŐőȌȍÒòỎỏƠơȎȏꝊꝋꝌꝍŌōǪǫØøÕõŒœ',
+      'p': 'ṔṕṖṗꝒꝓƤƥⱣᵽꝐꝑ',
+      'q': 'Ꝗꝗ',
+      'r': 'ŔŕŘřŖŗṘṙṚṛȐȑȒȓṞṟɌɍⱤɽ',
+      's': 'ŚśŠšŞşŜŝȘșṠṡṢṣß$',
+      't': 'ŤťŢţṰṱȚțȾⱦṪṫṬṭƬƭṮṯƮʈŦŧ',
+      'u': 'ÚúŬŭǓǔÛûṶṷÜüṲṳỤụŰűȔȕÙùỦủƯưȖȗŪūŲųŮůŨũṴṵ',
+      'v': 'ṾṿƲʋṼṽ',
+      'w': 'ẂẃŴŵẄẅẆẇẈẉẀẁⱲⱳ',
+      'x': 'ẌẍẊẋ',
+      'y': 'ÝýŶŷŸÿẎẏỴỵỲỳƳƴỶỷỾỿȲȳɎɏỸỹ',
+      'z': 'ŹźŽžẐẑⱫⱬŻżẒẓȤȥẔẕƵƶ'
+    };
+
     // Set all alternative keys (diacritics) for that key
     // separate upper and lower case values
     _altKeys = {};
-    var altMap = params.alternativeKeys;
-    for (var key in altMap) {
+    for (var key in diacritics) {
       if (SpecialKey(key))
         continue;
-      _altKeys[key] = altMap[key];
+      _altKeys[key] = diacritics[key];
+      dump("key: "+key+" alt: ");
+      for (var k=0; k< _altKeys[key].length; k++) dump(_altKeys[key][k].charCodeAt(0)+" ");
+      dump("\n");
       if (_altKeys[key.toUpperCase()] === undefined) {
-        _altKeys[key.toUpperCase()] = altMap[key].toUpperCase();
+        _altKeys[key.toUpperCase()] = diacritics[key].toUpperCase();
       }
     }
+    
+    // Create the character map that maps all valid characters to lower case
+    // and removes all diacritics along the way.
+    _charMap = {};
+    var set = '0123456789abcdefghijklmnopqrstuvwxyz\'- ';
+    for (var n = 0; n < set.length; ++n) {
+      var ch = set[n];
+      _charMap[ch.charCodeAt(0)] =
+          _charMap[ch.toUpperCase().charCodeAt(0)] = ch.charCodeAt(0);
+    }
+    
+    // Map all diacritics to lower case base character
+    for (var baseLetter in diacritics)
+      for (var i=0; i < diacritics[baseLetter]; ++i) {
+        var diacritic = diacritics[baseLetter][i].charCodeAt(0);
+        _charMap[diacritic] = baseLetter.charCodeAt(0);
+      }
 
     // For each key, calculate the keys nearby.
     var keyWidth = params.keyWidth;
@@ -411,15 +636,19 @@ var Predictions = (function() {
     if (!_dict || !_nearbyKeys) {
       throw Error('not initialized');
     }
-
+    
     // Get the raw predictions
     var predictions = Predict(prefix);
-  
     var finalPredictions = [];
 
-    // Extract just the words and return an array of strings
+    // Extract just the words, capitalize them if needed and return an array of strings
+    var capitalize = prefix[0] !== prefix[0].toLowerCase();
     for (var n = 0, len = predictions.length; n < len; ++n) {
-      finalPredictions.push(predictions[n].word);
+      var word = predictions[n].word;
+      if (capitalize) {
+        word = word[0].toUpperCase() + word.substring(1);
+      }
+      finalPredictions.push(word);
     }
     return finalPredictions;
   }
