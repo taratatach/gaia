@@ -45,7 +45,7 @@ var currentLanguage;
 var Commands = {
   setEngine: function setEngine(tengine) {
     // Load the predictions.js module.  This defines the Predictions object.
-    if (taratatach)
+    if (tengine)
       importScripts('predictions-t.js');
     else
       importScripts('predictions.js');
