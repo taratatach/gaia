@@ -58,6 +58,7 @@ settings = {
  "keyboard.vibration": False,
  "keyboard.clicksound": False,
  "keyboard.wordsuggestion": False,
+ "keyboard.wordsuggestion.taratatach": False,
  "keyboard.current": "en",
  "language.current": "en-US",
  "lockscreen.passcode-lock.code": "0000",

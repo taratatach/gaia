@@ -27,8 +27,21 @@
 
 'use strict';
 
-// Load the predictions.js module.  This defines the Predictions object.
-importScripts('predictions.js');
+// Load prediction engine based on user settings
+var settings = window.navigator.mozSettings;
+if (settings) {
+  var key = "keyboard.wordsuggestion.taratatach";
+  var getSetting = settings.createLock().get(key);
+  getSetting.addEventListener('success', function onsuccess() {
+      var taratatach = getPlatform.result[key];
+      
+      if (taratatach)
+	// Load the predictions.js module.  This defines the Predictions object.
+	importScripts('predictions.js');
+      else
+	importScripts('predictions-t.js');
+  });
+}
 
 // When we receive messages, translate them into function calls to one
 // of the functions in the Commands object below.
@@ -46,9 +59,11 @@ function log(msg) {
 var currentLanguage;
 
 var Commands = {
-  setLanguage: function setLanguage(language) {
+  setLanguage: function setLanguage(language, tengine) {
     if (language !== currentLanguage) {
       currentLanguage = language;
+    if (tengine)
+      language += '_t';
 
       var dicturl = 'dictionaries/' +
         language.replace('-', '_').toLowerCase() +
@@ -74,7 +89,7 @@ var Commands = {
     }
   },
 
-  setLayout: function setLayout(layout) {
+  setLayout: function setLayout(layout, tengine) {
     Predictions.setLayout(layout);
   },
 

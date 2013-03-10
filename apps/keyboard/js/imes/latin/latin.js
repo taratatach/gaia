@@ -44,6 +44,7 @@
   var inputMode;          // The inputmode we're using: see getInputMode()
   var capitalizing;       // Are we auto-capitalizing for this activation?
   var suggesting;         // Are we offering suggestions for this activation?
+  var tengine;            // Are we using taratach's suggestion engine?
   var punctuating;        // Are we offering punctuation assistance?
   var inputText;          // The input text
   var cursor;             // The insertion position
@@ -72,7 +73,7 @@
 
   const WS = /^\s+$/;                    // all whitespace characters
   const UC = /^[A-ZÀ-ÖØ-Þ]+$/;           // all uppercase latin characters
-  const LETTER = /^[a-zA-ZÀ-ÖØ-öø-ÿ]|-+$/; // all latin letters
+  var LETTER = /^[a-zA-ZÀ-ÖØ-öø-ÿ]+$/; // all latin letters
 
   const DOUBLE_SPACE_TIME = 700; // ms between spaces to convert to ". "
 
@@ -115,7 +116,7 @@
 
   // This gets called whenever the keyboard pops up to tell us everything
   // we need to provide useful typing assistance.
-  function activate(lang, suggestionsEnabled, state) {
+  function activate(lang, suggestionsEnabled, taratatach, state) {
     language = lang;
     inputMode = getInputMode(state.type, state.inputmode);
     inputText = state.value;
@@ -129,11 +130,15 @@
     // activation.
     capitalizing = punctuating = (inputMode === 'latin-prose');
     suggesting = (suggestionsEnabled && inputMode !== 'verbatim');
+    tengine = taratatach;
 
     // If we are going to offer suggestions, set up the worker thread.
     if (suggesting)
       setupSuggestionsWorker();
-
+    // If we are using taratatach's engine, change the way we handle "-"
+    if (tengine)
+      LETTER = /^[a-zA-ZÀ-ÖØ-öø-ÿ]|-+$/; // all latin letters
+    
     // Reset the double space flag
     lastKeyWasSpace = 0;
 
@@ -167,7 +172,7 @@
       // If we haven't created the worker before, do it now
       worker = new Worker('js/imes/latin/worker.js');
       if (layoutParams)
-        worker.postMessage({ cmd: 'setLayout', args: [layoutParams]});
+        worker.postMessage({ cmd: 'setLayout', args: [layoutParams, tengine]});
 
       worker.onmessage = function(e) {
         switch (e.data.cmd) {
@@ -186,7 +191,7 @@
 
     // Tell the worker what language we're using. They may cause it to
     // load or reload its dictionary.
-    worker.postMessage({ cmd: 'setLanguage', args: [language]});
+    worker.postMessage({ cmd: 'setLanguage', args: [language, tengine]});
   }
 
   function click(keycode, x, y, repeat) {
@@ -254,7 +259,7 @@
   function setLayoutParams(params) {
     layoutParams = params;
     if (worker)
-      worker.postMessage({ cmd: 'setLayout', args: [params]});
+      worker.postMessage({ cmd: 'setLayout', args: [params, tengine]});
   }
 
   function updateSuggestions(repeat) {

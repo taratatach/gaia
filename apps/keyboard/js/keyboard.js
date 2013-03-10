@@ -282,6 +282,7 @@ function getKeyboardSettings() {
   var settingsQuery = {
     'language.current': 'en-US',
     'keyboard.wordsuggestion': true,
+    'keyboard.wordsuggestion.taratatach': false,
     'keyboard.vibration': false,
     'keyboard.clicksound': false,
     'ring.enabled': true
@@ -297,6 +298,7 @@ function getKeyboardSettings() {
     // Copy settings values to the corresponding global variables.
     userLanguage = values['language.current'];
     suggestionsEnabled = values['keyboard.wordsuggestion'];
+    taratatach = values['keyboard.wordsuggestion.taratatach'];
     vibrationEnabled = values['keyboard.vibration'];
     clickEnabled = values['keyboard.clicksound'];
     isSoundEnabled = values['ring.enabled'];
@@ -1403,7 +1405,7 @@ function showKeyboard(state) {
   resetKeyboard();
 
   if (inputMethod.activate) {
-    inputMethod.activate(userLanguage, suggestionsEnabled, state);
+    inputMethod.activate(userLanguage, suggestionsEnabled, taratatach, state);
   }
 
   if (!inputMethod.displaysCandidates ||
