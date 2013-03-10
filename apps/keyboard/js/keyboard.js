@@ -230,6 +230,7 @@ const specialCodes = [
 // These values are initialized with user settings
 var userLanguage;
 var suggestionsEnabled;
+var taratatach;
 var clickEnabled;
 var vibrationEnabled;
 var enabledKeyboardGroups;
@@ -335,6 +336,13 @@ function initKeyboard() {
     // don't need to tell the keyboard about the new value right away.
     // We pass the value to the input method when the keyboard is displayed
     suggestionsEnabled = e.settingValue;
+  });
+
+  navigator.mozSettings.addObserver('keyboard.wordsuggestion.taratatach', function(e) {
+    // The keyboard won't be displayed when this setting changes, so we
+    // don't need to tell the keyboard about the new value right away.
+    // We pass the value to the input method when the keyboard is displayed
+    taratatach = e.settingValue;
   });
 
   navigator.mozSettings.addObserver('keyboard.vibration', function(e) {

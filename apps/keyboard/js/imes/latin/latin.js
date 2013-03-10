@@ -171,6 +171,9 @@
     if (!worker) {
       // If we haven't created the worker before, do it now
       worker = new Worker('js/imes/latin/worker.js');
+      
+      worker.postMessage({ cmd: 'setEngine', args: [tengine]});
+      
       if (layoutParams)
         worker.postMessage({ cmd: 'setLayout', args: [layoutParams, tengine]});
 
