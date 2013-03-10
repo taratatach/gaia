@@ -404,9 +404,9 @@ var Predictions = (function() {
           }
           predict(coffset, prefix, prefixLen, cmatch, suggestions, edits, multiplier);
 
-           if (edits < 2) {
+          if (edits < 2) {
             edits++;
-            alternativeChars(offset, prefix, prefixLen, match, edits, suggestions);
+            alternativeChars(coffset, prefix, prefixLen, cmatch, edits, suggestions);
             addChars(coffset, prefix, prefixLen, cmatch, edits, suggestions);
             if (prefixLen >= 2) {
               removeChars(coffset, prefix, prefixLen, cmatch, edits, suggestions);
@@ -511,6 +511,7 @@ var Predictions = (function() {
     // Sort the candidates by Levenshtein distance and rank.
     for (var n = 0, len = candidates.length; n < len; ++n) {
       var candidate = candidates[n];
+      dump(candidate.word+" ");
       // Skip candidates equal to input and shorter candidates
       if (candidate.word == lowerCaseWord ||
           candidate.word.length < lowerCaseWord.length) {
