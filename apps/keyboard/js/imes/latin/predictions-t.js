@@ -404,9 +404,9 @@ var Predictions = (function() {
           }
           predict(coffset, prefix, prefixLen, cmatch, suggestions, edits, multiplier);
 
-           if (edits < 2) {
+          if (edits < 2) {
             edits++;
-            alternativeChars(offset, prefix, prefixLen, match, edits, suggestions);
+            alternativeChars(coffset, prefix, prefixLen, cmatch, edits, suggestions);
             addChars(coffset, prefix, prefixLen, cmatch, edits, suggestions);
             if (prefixLen >= 2) {
               removeChars(coffset, prefix, prefixLen, cmatch, edits, suggestions);
