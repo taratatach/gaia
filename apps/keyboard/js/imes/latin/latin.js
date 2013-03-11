@@ -116,7 +116,7 @@
 
   // This gets called whenever the keyboard pops up to tell us everything
   // we need to provide useful typing assistance.
-  function activate(lang, suggestionsEnabled, taratatach, state) {
+  function activate(lang, suggestionsEnabled, tengineEnabled, state) {
     language = lang;
     inputMode = getInputMode(state.type, state.inputmode);
     inputText = state.value;
@@ -130,7 +130,7 @@
     // activation.
     capitalizing = punctuating = (inputMode === 'latin-prose');
     suggesting = (suggestionsEnabled && inputMode !== 'verbatim');
-    tengine = taratatach;
+    tengine = tengineEnabled;
 
     // If we are going to offer suggestions, set up the worker thread.
     if (suggesting)
@@ -167,8 +167,8 @@
       clearTimeout(idleTimer);
       idleTimer = null;
     }
-
-    if (!worker) {
+      
+//    if (!worker) {
       // If we haven't created the worker before, do it now
       worker = new Worker('js/imes/latin/worker.js');
       
@@ -190,7 +190,7 @@
           break;
         }
       };
-    }
+//    }
 
     // Tell the worker what language we're using. They may cause it to
     // load or reload its dictionary.

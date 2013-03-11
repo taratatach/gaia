@@ -230,7 +230,7 @@ const specialCodes = [
 // These values are initialized with user settings
 var userLanguage;
 var suggestionsEnabled;
-var taratatach;
+var tengineEnabled;
 var clickEnabled;
 var vibrationEnabled;
 var enabledKeyboardGroups;
@@ -299,7 +299,7 @@ function getKeyboardSettings() {
     // Copy settings values to the corresponding global variables.
     userLanguage = values['language.current'];
     suggestionsEnabled = values['keyboard.wordsuggestion'];
-    taratatach = values['keyboard.wordsuggestion.taratatach'];
+    tengineEnabled = values['keyboard.wordsuggestion.taratatach'];
     vibrationEnabled = values['keyboard.vibration'];
     clickEnabled = values['keyboard.clicksound'];
     isSoundEnabled = values['ring.enabled'];
@@ -342,7 +342,7 @@ function initKeyboard() {
     // The keyboard won't be displayed when this setting changes, so we
     // don't need to tell the keyboard about the new value right away.
     // We pass the value to the input method when the keyboard is displayed
-    taratatach = e.settingValue;
+    tengineEnabled = e.settingValue;
   });
 
   navigator.mozSettings.addObserver('keyboard.vibration', function(e) {
@@ -1413,7 +1413,7 @@ function showKeyboard(state) {
   resetKeyboard();
 
   if (inputMethod.activate) {
-    inputMethod.activate(userLanguage, suggestionsEnabled, taratatach, state);
+    inputMethod.activate(userLanguage, suggestionsEnabled, tengineEnabled, state);
   }
 
   if (!inputMethod.displaysCandidates ||

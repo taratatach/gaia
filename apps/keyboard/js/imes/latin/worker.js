@@ -44,11 +44,10 @@ var currentLanguage;
 
 var Commands = {
   setEngine: function setEngine(tengine) {
+    var urls = { true: 'predictions-t.js', false: 'predictions.js' };
+
     // Load the predictions.js module.  This defines the Predictions object.
-    if (tengine)
-      importScripts('predictions-t.js');
-    else
-      importScripts('predictions.js');
+    importScripts(urls[tengine]);
   },
 
   setLanguage: function setLanguage(language, tengine) {
